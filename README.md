@@ -152,5 +152,15 @@ Dataset Webpage: https://www.sen4agrinet.space.noa.gr/
 To cite please use:
 ```text
 
+@INPROCEEDINGS{9553603,
+  author={Sykas, Dimitris and Papoutsis, Ioannis and Zografakis, Dimitrios},
+  booktitle={2021 IEEE International Geoscience and Remote Sensing Symposium IGARSS}, 
+  title={Sen4AgriNet: A Harmonized Multi-Country, Multi-Temporal Benchmark Dataset for Agricultural Earth Observation Machine Learning Applications}, 
+  year={2021},
+  volume={},
+  number={},
+  pages={5830-5833},
+  doi={10.1109/IGARSS47720.2021.9553603}}
+
 ```
 
