@@ -5,23 +5,21 @@
 
 ---
 
-### Note: This is a work in progress
+#### Highly recommended to read Notebook [#1](https://github.com/Orion-AI-Lab/S4A/blob/main/patch_aggregation_visualization.ipynb) and [#2](https://github.com/Orion-AI-Lab/S4A/blob/main/s4a-dataloaders.ipynb).
 
-#### Highly recommended to read Notebook [#1](https://github.com/dimzog/S4A/blob/master/patch_aggregation_visualization.ipynb) and [#2](https://github.com/dimzog/S4A/blob/master/s4a-dataloaders.ipynb).
+This repository provides a native PyTorch Dataset Class for Sen4AgriNet dataset. Should work with any new version of PyTorch1.7.1+ and Python3.8.5+.
 
-This repository provides a native PyTorch Dataset Class for Sen4AgriNet dataset, should work with any new version of PyTorch1.7.1+ and Python3.8.5+.
-
-Dataset heavily relies on [cocoapi](https://github.com/cocodataset/cocoapi) for dataloading and indexing, therefore make sure you have it installed
+Dataset heavily relies on [cocoapi](https://github.com/cocodataset/cocoapi) for dataloading and indexing, therefore make sure you have it installed:
 ```python
 pip3 install pycocotools
 ```
 
-Then make sure every other requirement is installed
+Then make sure every other requirement is installed:
 ```python
 pip3 install -r requirements.txt
 ```
 
-Example usage
+### Example usage
 
 ```python3
 import netCDF4
@@ -50,13 +48,15 @@ root group (NETCDF4 data model, file format HDF5):
     _format: NETCDF4
     _nco_version: netCDF Operators version 4.9.1 (Homepage = http://nco.sf.net, Code = http://github.com/nco/nco)
     _xarray_version: 0.17.0
-    dimensions(sizes): 
-    variables(dimensions): 
+    dimensions(sizes):
+    variables(dimensions):
     groups: B01, B02, B03, B04, B05, B06, B07, B08, B09, B10, B11, B12, B8A, labels, parcels
 """
 ```
 
-Visualization, plot single timestamp
+#### Visualization
+
+Plot single timestamp:
 ```python3
 import xarray as xr
 
@@ -66,21 +66,23 @@ band_data.B02.isel(time=0).plot()
 ![Single Month](images/single_timestamp.png)
 
 
-Or maybe plot labels
+Or plot labels:
 ```python3
 labels = xr.open_dataset(xr.backends.NetCDF4DataStore(patch['labels']))
 labels.labels.plot()
 ```
 ![Labels](images/labels.png)
 
-Or maybe parcels
+Or plot parcels:
 ```python3
 parcels = xr.open_dataset(xr.backends.NetCDF4DataStore(patch['parcels']))
 parcels.parcels.plot()
 ```
 ![Parcels](images/parcels.png)
 
-Aggregation
+#### Aggregation
+
+Plot the median of observations for each month:
 
 ```python3
 import pandas as pd
@@ -105,26 +107,26 @@ band_data = band_data.groupby_bins(
 ).median(dim='time')
 ```
 
-If you plot right now, you might notice that some months are empty
+If you plot right now, you might notice that some months are empty:
 ![Single Month](images/per_month_empty.png)
 
-(Optional) Fill in empty months
+(Optional) Fill in empty months:
 
 ```python3
 band_data = band_data.interpolate_na(dim='time_bins', method='linear', fill_value='extrapolate')
 ```
 
-Plot them
+Plot them:
 ```python3
 import matplotlib.pyplot as plt
 
 fig, axes = plt.subplots(nrows=3, ncols=4, figsize=(18, 12))
 
 for i, season in enumerate(band_data.B02):
-    
+
     ax = axes.flat[i]
     cax = band_data.B02.isel(time_bins=i).plot(ax=ax)
-    
+
 
 for i, ax in enumerate(axes.flat):
     ax.axes.get_xaxis().set_ticklabels([])
@@ -133,29 +135,26 @@ for i, ax in enumerate(axes.flat):
     ax.set_xlabel('')
     ax.set_ylabel('')
     ax.set_title(f'Month: {i+1}')
-    
+
 
 plt.tight_layout()
 plt.show()
 ```
 ![Per Month](images/per_month.png)
 
-
-#### Spoiler, annotations that will be included in final published COCO files.
-![Annotations](images/annotations.png)
-
-
-DOI: 
+### Webpage
 
 Dataset Webpage: https://www.sen4agrinet.space.noa.gr/
+
+### Citation
 
 To cite please use:
 ```text
 
 @INPROCEEDINGS{9553603,
   author={Sykas, Dimitris and Papoutsis, Ioannis and Zografakis, Dimitrios},
-  booktitle={2021 IEEE International Geoscience and Remote Sensing Symposium IGARSS}, 
-  title={Sen4AgriNet: A Harmonized Multi-Country, Multi-Temporal Benchmark Dataset for Agricultural Earth Observation Machine Learning Applications}, 
+  booktitle={2021 IEEE International Geoscience and Remote Sensing Symposium IGARSS},
+  title={Sen4AgriNet: A Harmonized Multi-Country, Multi-Temporal Benchmark Dataset for Agricultural Earth Observation Machine Learning Applications},
   year={2021},
   volume={},
   number={},
@@ -163,4 +162,3 @@ To cite please use:
   doi={10.1109/IGARSS47720.2021.9553603}}
 
 ```
-
