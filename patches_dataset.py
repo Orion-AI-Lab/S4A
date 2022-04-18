@@ -3,21 +3,20 @@ import pandas as pd
 from datetime import datetime
 from typing import Any, Tuple, Union
 from tqdm import tqdm
-import random
+
 import xarray as xr
 from pycocotools.coco import COCO
 import netCDF4
 
-import torch
 from torch.utils.data import Dataset
 from pathlib import Path
+import pytorch_lightning as pl
 
-from utils import NORMALIZATION_DIV, RANDOM_SEED, REFERENCE_BAND, IMG_SIZE, BANDS, hollstein_mask
+from utils.config import RANDOM_SEED, BANDS, IMG_SIZE, REFERENCE_BAND, NORMALIZATION_DIV
+from utils.tools import hollstein_mask
 
-
-random.seed(RANDOM_SEED)
-np.random.seed(RANDOM_SEED)
-torch.manual_seed(RANDOM_SEED)
+# Set seed for everything
+pl.seed_everything(RANDOM_SEED)
 
 
 class PatchesDataset(Dataset):
@@ -46,15 +45,14 @@ class PatchesDataset(Dataset):
     def __init__(
             self,
             coco: COCO,
-            root_path_coco: Union[str, Path] = None,
+            root_path_netcdf: Union[str, Path] = None,
             bands: list = None,
-            transforms=None,
-            compression: str = 'gzip',
             group_freq: str = '1MS',
-            save_medians: bool = False,
+            saved_medians: bool = False,
             linear_encoder: dict = None,
             prefix: str = None,
             window_len: int = 12,
+            fixed_window: bool = False,
             requires_norm: bool = True,
             return_masks: bool = False,
             clouds: bool = True,
@@ -62,25 +60,25 @@ class PatchesDataset(Dataset):
             shadow: bool = True,
             snow: bool = True,
             output_size: tuple = None,
-            binary_labels: bool = False
+            binary_labels: bool = False,
+            mode: str = None,
+            return_parcels: bool = False
     ) -> None:
         '''
         Parameters
         ----------
         coco: COCO Object
             A COCO object containing the data.
+        root_path_netcdf: Path or str, default None
+            The path containing the netcdf files.
         bands: list of str, default None
             A list of the bands to use. If None, then all available bands are
             taken into consideration. Note that the bands are given in a two-digit
             format, e.g. '01', '02', '8A', etc.
-        transforms: list of pytorch Transforms, default None
-            A list of pytorch Transforms to use. To be implemented.
-        compression: str, default 'gzip'
-            The type of compression to use for the produced index file.
         group_freq: str, default '1MS'
             The frequency to use for binning. All Pandas offset aliases are supported.
             Check: https://pandas.pydata.org/pandas-docs/stable/user_guide/timeseries.html#timeseries-offset-aliases
-        save_medians: boolean, default False
+        saved_medians: boolean, default False
             Whether to precompute and save all medians. This saves on computation
             time during batching.
         linear_encoder: dict, default None
@@ -93,6 +91,9 @@ class PatchesDataset(Dataset):
             over the data. E.g. if `window_len` = 6 and `group_freq` = '1M', then
             a 6-month rolling window will be applied and each batch will contain
             6 months of training data and the corresponding label.
+        fixed_window: boolean, default False
+            If True, then a fixed window including months 4 (April) to 9 (September)
+            is used instead of a rolling one.
         requires_norm: boolean, default True
             If True, then it normalizes the dataset to [0, 1] range.
         return_masks: boolean, default False
@@ -112,6 +113,10 @@ class PatchesDataset(Dataset):
             will retain their original size.
         binary_labels: bool, default False
             Map categories to 0 background, 1 parcel.
+        mode: str, ['train', 'val', 'test']
+            The running mode. Used to determine the correct path for the median files.
+        return_parcels: boolean, default False
+            If True, then a boolean mask for the parcels is also returned.
         '''
 
         if prefix is None:
@@ -121,8 +126,10 @@ class PatchesDataset(Dataset):
         self.coco = coco
         self.patch_ids = list(sorted(self.coco.imgs.keys()))
 
-        # Base root path, pointing to coco instance
-        self.root_path_coco = Path(root_path_coco)
+        if root_path_netcdf is not None:
+            self.root_path_netcdf = Path(root_path_netcdf)
+        else:
+            self.root_path_netcdf = None
 
         # number of total patches is given by number of patches in coco
         self.num_patches = len(self.patch_ids)
@@ -150,37 +157,42 @@ class PatchesDataset(Dataset):
                 'snow': snow
             }
 
-        self.compression = compression
         self.img_size = IMG_SIZE
         self.requires_pad = False
         self.requires_subpatching = False
 
+        self.return_parcels = return_parcels
+
         if output_size is None:
             self.output_size = [self.img_size, self.img_size]
 
-        if output_size is not None:
-            assert isinstance(output_size[0], int) and isinstance(output_size[1], int),\
-                'sub-patches dims must be integers!'
+        assert isinstance(output_size[0], int) and isinstance(output_size[1], int),\
+            'sub-patches dims must be integers!'
 
-            assert output_size[0] == output_size[1], \
-                f'Only square sub-patch size is supported. Mismatch: {output_size[0]} != {output_size[1]}.'
+        assert output_size[0] == output_size[1], \
+            f'Only square sub-patch size is supported. Mismatch: {output_size[0]} != {output_size[1]}.'
 
-            # Calculate number of sub-patches in each dimension, check if image needs to be padded
-            self.output_size = [int(dim) for dim in output_size]
+        self.output_size = [int(dim) for dim in output_size]
 
-            if self.output_size[0] < self.patch_height or self.output_size[1] < self.patch_width:
-                # If outsize is smaller than patch dims, then we need to break it down to subpatches
-                self.requires_subpatching = True
+        # Calculate number of sub-patches in each dimension, check if image needs to be padded
+        # TODO: Replace padding with PyTorch Transforms so we can use it to update annotations accordingly
+        # Ref: https://github.com/facebookresearch/detr/blob/master/d2/detr/dataset_mapper.py#L115
+        if self.output_size[0] < self.patch_height or self.output_size[1] < self.patch_width:
+            # If output_size is smaller than patch dims, then we need to break it down to subpatches
+            self.requires_subpatching = True
 
-            # Calculating padding offsets if there is a need to
-            if (self.patch_height % self.output_size[0] != 0) or (self.patch_width % self.output_size[1] != 0):
-                self.requires_pad = True
-                self.pad_top, self.pad_bot, self.pad_left, self.pad_right = self.get_padding_offset()
+        # Calculating padding offsets if there is a need to
+        # In case `saved_medians` is True, then we assume that the medians have already
+        # taken padding into account during computation
+        if not saved_medians and \
+            ((self.patch_height % self.output_size[0] != 0) or (self.patch_width % self.output_size[1] != 0)):
+            self.requires_pad = True
+            self.pad_top, self.pad_bot, self.pad_left, self.pad_right = self.get_padding_offset()
 
-                # patch_height should always match patch_width because we have square images,
-                # but doing it like this ensures expandability
-                self.padded_patch_height += (self.pad_top + self.pad_bot)
-                self.padded_patch_width += (self.pad_left + self.pad_right)
+            # patch_height should always match patch_width because we have square images,
+            # but doing it like this ensures expandability
+            self.padded_patch_height += (self.pad_top + self.pad_bot)
+            self.padded_patch_width += (self.pad_left + self.pad_right)
 
         self.num_subpatches = (self.padded_patch_height // self.output_size[0]) * (self.padded_patch_width // self.output_size[1])
 
@@ -188,7 +200,7 @@ class PatchesDataset(Dataset):
 
         self.group_freq = group_freq
         self.window_len = window_len
-        self.transforms = transforms
+        self.fixed_window = fixed_window
         self.linear_encoder = linear_encoder
 
         # Dtypes
@@ -199,12 +211,11 @@ class PatchesDataset(Dataset):
         # therefore, calculate them using a random year
         self.num_buckets = len(pd.date_range(start=f'2020-01-01', end=f'2021-01-01', freq=self.group_freq)) - 1
 
-        self.save_medians = save_medians
-        self.medians_dir = Path(f'logs/medians/{prefix}_medians_{group_freq}_{"".join(self.bands)}')
-        if self.save_medians:
-            self.save_median_files()
+        self.saved_medians = saved_medians
+        self.medians_dir = Path(f'logs/medians/{prefix}_medians_{group_freq}_{"".join(self.bands)}/{mode}')
 
-    def get_padding_offset(self) -> Tuple[int, int, int, int]:
+
+    def get_padding_offset(self):
         img_size_x = self.patch_height
         img_size_y = self.patch_width
 
@@ -305,68 +316,53 @@ class PatchesDataset(Dataset):
         # Reshape so window length is first
         return medians.transpose(1, 0, 2, 3)
 
-    def get_labels(self, netcdf: netCDF4.Dataset) -> np.ndarray:
+
+    def get_labels(self, netcdf: netCDF4.Dataset, start_bin: int) -> np.ndarray:
+
+        # We should definitely explore how to produce labels for given binning frequency
+        # labels can be timeseries, for the time being we only have 1 label per year
+        # so just load and return that
 
         # Load and Convert to numpy array
         labels = xr.open_dataset(xr.backends.NetCDF4DataStore(netcdf['labels']))['labels'].values
 
         return labels
 
-    def get_annotations(self, coco: COCO) -> dict:
-        raise NotImplementedError('')
 
-    def save_median_files(self):
-        '''
-        Computes and saves the median files in a separate directory so when
-        batching it will load these images without having to compute them on the fly.
-        ESPECIALLY useful when output_size is tiny (e.g. (5, 5)).
-        '''
-        # Create folder if it doesn't exist
-        self.medians_dir.mkdir(exist_ok=True, parents=True)
-
-        print(f'\nCalculating medians...')
-
-        for patch_id, patch_info in tqdm(self.coco.imgs.items(), ncols=75, desc='Saving Medians'):
-            patch_dir = self.medians_dir / f'{patch_id}'
-            patch_dir.mkdir(exist_ok=True, parents=True)
-
-            if len(list(patch_dir.iterdir())) == self.num_buckets + 1:
-                continue
-
-            # Calculate medians
-            netcdf = netCDF4.Dataset(self.root_path_coco / patch_info['file_name'], 'r')
-            medians = self.get_medians(netcdf, 0, 12)
-
-            # Save medians
-            zero_pad = len(str(medians.shape[0]))
-            for i in range(medians.shape[0]):
-                np.save(patch_dir / f'bin_{str(i).rjust(zero_pad, "0")}', medians[i, :, :, :].astype(self.medians_dtype))
-
-            # Save labels
-            labels = self.get_labels(netcdf)
-            np.save(patch_dir / f'labels', labels.astype(self.label_dtype))
-
-        print('Medians saved.\n')
-
-    def load_medians(self, path: Path, start_bin: int) -> Tuple[np.ndarray, np.ndarray]:
+    def load_medians(self, path: Path, subpatch_id: int, start_bin: int) -> Tuple[np.ndarray, np.ndarray]:
         """
         Loads precomputed medians for requested path.
         Medians are already padded and aggregated, so no need for further processing.
         Just load and return
         """
         # `medians` is a 4d numpy array (window length, bands, img_size, img_size)
-        medians = np.empty((self.window_len, self.num_bands, self.patch_height, self.patch_width),
-                           dtype=self.medians_dtype)
+        if self.fixed_window:
+            medians = np.empty((6, self.num_bands, self.output_size[0], self.output_size[1]),
+                                dtype=self.medians_dtype)
+        else:
+            medians = np.empty((self.window_len, self.num_bands, self.output_size[0], self.output_size[1]),
+                                dtype=self.medians_dtype)
 
-        median_files = sorted(path.glob('bin_*'))
-        for i, bin_idx in enumerate(range(start_bin, start_bin + self.window_len)):
+        padded_id = f'{str(subpatch_id).rjust(len(str(self.num_subpatches)), "0")}'
+
+        median_files = sorted(path.glob(f'sub{padded_id}_bin*'))
+
+        if self.fixed_window:
+            start_month = 3
+            end_month = 9
+        else:
+            start_month = start_bin
+            end_month = start_bin + self.window_len
+
+        for i, bin_idx in enumerate(range(start_month, end_month)):
             median = np.load(median_files[bin_idx]).astype(self.medians_dtype)
             medians[i] = median.copy()
 
         # Read labels
-        labels = np.load(path / 'labels.npy').astype(self.label_dtype)
+        labels = np.load(path / f'labels_sub{padded_id}.npy').astype(self.label_dtype)
 
         return medians, labels
+
 
     def get_window(self, idx: int) -> Tuple[int, int, int]:
         '''
@@ -401,6 +397,7 @@ class PatchesDataset(Dataset):
 
         return int(start_bin), int(patch_id), int(subpatch_id)
 
+
     def __getitem__(self, idx: int) -> dict:
         # The data item index (`idx`) corresponds to a single sequence.
         # In order to fetch the correct sequence, we must determine exactly which
@@ -409,15 +406,15 @@ class PatchesDataset(Dataset):
 
         patch_id = self.patch_ids[patch_id]
 
-        if self.save_medians:
+        if self.saved_medians:
             # They are already computed, therefore we just load them
             block_dir = Path(self.medians_dir) / str(patch_id)
 
             # Read medians in time window
-            medians, labels = self.load_medians(block_dir, start_bin=start_bin)
+            medians, labels = self.load_medians(block_dir, subpatch_id, start_bin)
         else:
             # Find patch in COCO file
-            patch = self.root_path_coco / self.coco.loadImgs(patch_id)[0]['file_name']
+            patch = self.root_path_netcdf / self.coco.loadImgs(patch_id)[0]['file_name']
 
             # Load patch netcdf4
             patch_netcdf = netCDF4.Dataset(patch, 'r')
@@ -428,59 +425,64 @@ class PatchesDataset(Dataset):
 
             # labels is a 3d numpy array (window length, img_size, img_size)
             # for the time being, we have yearly labels, so window_len will always be 1
-            labels = self.get_labels(netcdf=patch_netcdf)
+            labels = self.get_labels(netcdf=patch_netcdf, start_bin=start_bin)
+
+            if self.requires_pad:
+                medians = np.pad(medians,
+                                 pad_width=((0, 0), (0, 0), (self.pad_top, self.pad_bot), (self.pad_left, self.pad_right)),
+                                 mode='constant',
+                                 constant_values=0)
+
+                labels = np.pad(labels,
+                                pad_width=((self.pad_top, self.pad_bot), (self.pad_left, self.pad_right)),
+                                mode='constant',
+                                constant_values=0
+                                )
+
+            if self.requires_subpatching:
+                window_len, num_bands, width, height = medians.shape
+
+                # Side_h should be equal length of side_w
+                side_h = self.output_size[0]
+                side_w = self.output_size[1]
+                num_subpatches_h = int(self.padded_patch_height // side_h)
+                num_subpatches_w = int(self.padded_patch_width // side_w)
+
+                # Reshape medians
+                # From:             (window length, bands, pad_img_size, pad_img_size)
+                # To                (window length, bands, N, output_shape[0], M, output_shape[1])
+                # Transpose         (N, M, window length, bands, output_shape[0], output_shape[1])
+                # Reshape           (N * M, window length, bands, output_shape[0], output_shape[1])
+                medians = medians.reshape(window_len, num_bands, num_subpatches_w, side_w, num_subpatches_h, side_h) \
+                    .transpose(2, 4, 0, 1, 3, 5) \
+                    .reshape(-1, window_len, num_bands, side_w, side_h)
+
+                # Same for labels, but no bands and window length dimensions
+                labels = labels.reshape(num_subpatches_w, side_w, num_subpatches_h, side_h)\
+                    .transpose(0, 2, 1, 3)\
+                    .reshape(-1, side_w, side_h)
+
+                # Return requested sub-patch
+                medians = medians[subpatch_id]
+                labels = labels[subpatch_id]
 
         # Normalize data to range [0-1]
         if self.requires_norm:
             medians = np.divide(medians, NORMALIZATION_DIV)
 
-        if self.requires_pad:
-            medians = np.pad(medians,
-                             pad_width=((0, 0), (0, 0), (self.pad_top, self.pad_bot), (self.pad_left, self.pad_right)),
-                             mode='constant',
-                             constant_values=0)
-
-            labels = np.pad(labels,
-                            pad_width=((self.pad_top, self.pad_bot), (self.pad_left, self.pad_right)),
-                            mode='constant',
-                            constant_values=0
-                            )
-
-        if self.requires_subpatching:
-            window_len, num_bands, width, height = medians.shape
-
-            # Side_h should be equal length of side_w
-            side_h = self.output_size[0]
-            side_w = self.output_size[1]
-            num_subpatches_h = int(self.padded_patch_height // side_h)
-            num_subpatches_w = int(self.padded_patch_width // side_w)
-
-            # Reshape medians
-            # From:             (window length, bands, pad_img_size, pad_img_size)
-            # To                (window length, bands, N, output_shape[0], M, output_shape[1])
-            # Transpose         (N, M, window length, bands, output_shape[0], output_shape[1])
-            # Reshape           (N * M, window length, bands, output_shape[0], output_shape[1])
-            medians = medians.reshape(window_len, num_bands, num_subpatches_w, side_w, num_subpatches_h, side_h) \
-                .transpose(2, 4, 0, 1, 3, 5) \
-                .reshape(-1, window_len, num_bands, side_w, side_h)
-
-            # Same for labels, but no bands and window length dimensions
-            labels = labels.reshape(num_subpatches_w, side_w, num_subpatches_h, side_h)\
-                .transpose(0, 2, 1, 3)\
-                .reshape(-1, side_w, side_h)
-
-            # Return requested sub-patch
-            medians = medians[subpatch_id]
-            labels = labels[subpatch_id]
-
         if self.window_len == 1:
             # Remove window_len dimension
             medians = medians.squeeze(axis=0)
 
+        out = {}
+
+        if self.return_parcels:
+            parcels = labels != 0
+            out['parcels'] = parcels
+
         if self.binary_labels:
             # Map 0: background class, 1: parcel
             labels[labels != 0] = 1
-
         else:
             # Map labels to 0-len(unique(crop_id)) see config
             # labels = np.vectorize(self.linear_encoder.get)(labels)
@@ -489,10 +491,12 @@ class PatchesDataset(Dataset):
                 _[labels == crop_id] = linear_id
             labels = _
 
-        out = {
-            'medians': medians.astype(self.medians_dtype),
-            'labels': labels.astype(self.label_dtype)
-        }
+        # Map all classes NOT in linear encoder's values to 0
+        labels[~np.isin(labels, list(self.linear_encoder.values()))] = 0
+
+        out['medians'] = medians.astype(self.medians_dtype)
+        out['labels'] = labels.astype(self.label_dtype)
+        out['idx'] = idx
 
         if self.return_masks:
             out['masks'] = hollstein_mask(out['medians'],
@@ -503,10 +507,8 @@ class PatchesDataset(Dataset):
                                           requires_norm=self.requires_norm,
                                           reference_bands=self.bands)
 
-        # if self.return_annotation:
-            # self.get_annotations()
-
         return out
+
 
     def __len__(self):
         '''
