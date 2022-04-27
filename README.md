@@ -7,7 +7,7 @@
 
 ---
 
-This repository provides a native PyTorch Dataset Class for Sen4AgriNet dataset. Should work with any new version of PyTorch1.7.1+ and Python3.8.5+.
+This repository provides a native PyTorch Dataset Class for Sen4AgriNet dataset (`patches_dataset.py`). Should work with any new version of PyTorch1.7.1+ and Python3.8.5+.
 
 Dataset heavily relies on [cocoapi](https://github.com/cocodataset/cocoapi) for dataloading and indexing, therefore make sure you have it installed:
 ```python
