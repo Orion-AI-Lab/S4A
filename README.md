@@ -233,7 +233,7 @@ Dataset Webpage: https://www.sen4agrinet.space.noa.gr/
 
 ### Experiments
 
-Please visit [S4A-Models](https://github.com/Orion-AI-Lab/S4A-Models) for a complete experimentation pipeline using the Sen4AgriNet dataset. 
+Please visit [Sen4AgriNet-Models](https://github.com/Orion-AI-Lab/S4A-Models) for a complete experimentation pipeline using the Sen4AgriNet dataset.
 
 ### Citation
 
