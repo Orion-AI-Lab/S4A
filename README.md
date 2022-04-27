@@ -3,7 +3,7 @@
 #### A Sentinel-2 multi-year, multi-country benchmark dataset for crop classification and segmentation with deep learning
 
 
-**Authors:** Dr. Dimitris Sykas, Dr. Ioannis Papoutsis, Dimitrios Zografakis, Maria Sdraka
+**Contributors:** [Sykas D.](https://github.com/dimsyk), [Zografakis D.](https://github.com/dimzog), [Sdraka M.](https://github.com/paren8esis)
 
 ---
 
