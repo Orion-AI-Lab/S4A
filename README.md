@@ -21,7 +21,7 @@ pip3 install -r requirements.txt
 
 ### Instructions
 
-In order to use the provided PyTroch Dataset class, the required netCDF files of Sen4AgriNet must be downloaded ([Dropbox](https://www.dropbox.com/sh/2arxz9d7fffg0xb/AADqlPtOoo4aCYAtmo2XzN5ta/netcdf?dl=0&subfolder_nav_tracking=1)) and placed inside the `dataset/netcdf/` folder.
+In order to use the provided PyTroch Dataset class, the required netCDF files of Sen4AgriNet must be downloaded ([Dropbox](https://www.dropbox.com/sh/2arxz9d7fffg0xb/AADqlPtOoo4aCYAtmo2XzN5ta/netcdf?dl=0&subfolder_nav_tracking=1) or [Google Drive](https://drive.google.com/drive/folders/1-qKhlaMUPPI7Th7xTE2vIXY2nIowrSiC?usp=sharing)) and placed inside the `dataset/netcdf/` folder.
 
 Then, three separate COCO files must be created: one for training, one for validation and one for testing.
 
