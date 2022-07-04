@@ -7,6 +7,10 @@
 
 ---
 
+**Supplementary repo with DL experiments using the Sen4AgriNet dataset:** [Sen4AgriNet-Models](https://github.com/Orion-AI-Lab/S4A-Models).
+
+---
+
 This repository provides a native PyTorch Dataset Class for Sen4AgriNet dataset (`patches_dataset.py`). Should work with any new version of PyTorch1.7.1+ and Python3.8.5+.
 
 Dataset heavily relies on [cocoapi](https://github.com/cocodataset/cocoapi) for dataloading and indexing, therefore make sure you have it installed:
@@ -21,7 +25,7 @@ pip3 install -r requirements.txt
 
 ### Instructions
 
-In order to use the provided PyTroch Dataset class, the required netCDF files of Sen4AgriNet must be downloaded ([Dropbox](https://www.dropbox.com/sh/2arxz9d7fffg0xb/AADqlPtOoo4aCYAtmo2XzN5ta/netcdf?dl=0&subfolder_nav_tracking=1) or [Google Drive](https://drive.google.com/drive/folders/1-qKhlaMUPPI7Th7xTE2vIXY2nIowrSiC?usp=sharing)) and placed inside the `dataset/netcdf/` folder.
+In order to use the provided PyTroch Dataset class, the required netCDF files of Sen4AgriNet must be downloaded and placed inside the `dataset/netcdf/` folder. These files are available for download at [Dropbox](https://www.dropbox.com/sh/2arxz9d7fffg0xb/AADqlPtOoo4aCYAtmo2XzN5ta/netcdf?dl=0&subfolder_nav_tracking=1), [Google Drive](https://drive.google.com/drive/folders/1-qKhlaMUPPI7Th7xTE2vIXY2nIowrSiC?usp=sharing) and [HuggingFace Hub](https://huggingface.co/datasets/paren8esis/S4A) (_experimental_).
 
 Then, three separate COCO files must be created: one for training, one for validation and one for testing.
 
