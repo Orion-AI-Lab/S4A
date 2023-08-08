@@ -27,7 +27,7 @@ pip3 install -r requirements.txt
 
 In order to use the provided PyTroch Dataset class, the required netCDF files of Sen4AgriNet must be downloaded and placed inside the `dataset/netcdf/` folder. These files are available for download at [Dropbox](https://www.dropbox.com/scl/fo/ne0dpq72gi3ayhqj0hg60/h?dl=0&rlkey=b0148zl6yja7ph26bpfms6knt), [Google Drive](https://drive.google.com/drive/folders/1-qKhlaMUPPI7Th7xTE2vIXY2nIowrSiC?usp=sharing) and [HuggingFace Hub](https://huggingface.co/datasets/paren8esis/S4A) (_experimental_).
 
-Then, three separate COCO files must be created: one for training, one for validation and one for testing.
+Then, three separate COCO files must be created: one for training, one for validation and one for testing. Alternatively, the predefined COCO files for the 3 Scenarios can be downloaded from [here](https://www.dropbox.com/sh/kvgo4r2vin7sbwt/AACzDLNbnSouuZYMk8Y9I4sha?dl=0).
 
 After this initial setup, `patches_dataset.py` can be used in a PyTorch deep learning pipeline to load, prepare and return patches from the dataset according to the split dictated by the COCO files. This Dataset class has the following features:
  - Reads the netCDF files of the dataset containing the Sentinel-2 observations over time and the corresponding labels.
